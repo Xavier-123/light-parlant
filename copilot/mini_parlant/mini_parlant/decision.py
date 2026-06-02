@@ -1,5 +1,5 @@
 """
-Decision engine for mini-parlant.
+Decision engine for mini_parlant.
 
 Two engines are provided:
 

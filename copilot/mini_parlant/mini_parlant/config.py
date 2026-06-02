@@ -1,5 +1,5 @@
 """
-Configuration objects for mini-parlant.
+Configuration objects for mini_parlant.
 
 :class:`RuntimeConfig` is the single knob users turn to change behaviour.
 """

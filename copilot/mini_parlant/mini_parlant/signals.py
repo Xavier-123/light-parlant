@@ -1,5 +1,5 @@
 """
-Signal detection for mini-parlant.
+Signal detection for mini_parlant.
 
 The :class:`SignalDetector` inspects a :class:`~mini_parlant.models.ContextBundle`
 and emits a list of :class:`~mini_parlant.models.Signal` objects that the

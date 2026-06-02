@@ -1,5 +1,5 @@
 """
-Built-in strategies for mini-parlant.
+Built-in strategies for mini_parlant.
 
 Three strategies are provided out of the box:
 

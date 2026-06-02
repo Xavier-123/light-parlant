@@ -1,5 +1,5 @@
 """
-Strategy registry for mini-parlant.
+Strategy registry for mini_parlant.
 
 Inspired by Parlant's Journey/Guideline registration pattern.
 Strategies are lightweight objects that translate a context + signals into a

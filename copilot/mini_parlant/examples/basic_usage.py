@@ -1,7 +1,7 @@
 """
-Example: mini-parlant basic usage.
+Example: mini_parlant basic usage.
 
-Run from the mini-parlant directory:
+Run from the mini_parlant directory:
 
     python examples/basic_usage.py
 
@@ -12,7 +12,7 @@ pipeline (including the composed prompt) without any network calls.
 import sys
 import os
 
-# Allow running from the repo root or from the mini-parlant directory
+# Allow running from the repo root or from the mini_parlant directory
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from mini_parlant import MiniParlantRuntime, RuntimeConfig, DecisionMode

@@ -1,5 +1,5 @@
 """
-Prompt composer for mini-parlant.
+Prompt composer for mini_parlant.
 
 Takes a :class:`~mini_parlant.models.StrategyResult` + a trimmed
 :class:`~mini_parlant.models.ContextBundle` and builds the final LLM prompt,
@@ -51,7 +51,7 @@ class Composer:
     def _stub_llm(prompt: str) -> str:
         """Echo stub — returns a placeholder when no real LLM is configured."""
         return (
-            "[mini-parlant stub response]\n\n"
+            "[mini_parlant stub response]\n\n"
             "No LLM caller was configured.  The composed prompt was:\n\n"
             + prompt
         )

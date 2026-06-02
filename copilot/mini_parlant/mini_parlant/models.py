@@ -1,5 +1,5 @@
 """
-Data models for mini-parlant.
+Data models for mini_parlant.
 
 These are intentionally plain dataclasses / TypedDicts so that the package
 carries zero mandatory third-party dependencies.

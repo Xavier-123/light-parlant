@@ -1,5 +1,5 @@
 """
-Context selector for mini-parlant.
+Context selector for mini_parlant.
 
 Responsibility: trim / prioritise the raw content inside a
 :class:`~mini_parlant.models.ContextBundle` so that the composer only sees

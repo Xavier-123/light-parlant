@@ -1,7 +1,7 @@
 """
-Tests for mini-parlant.
+Tests for mini_parlant.
 
-Run with:  pytest mini-parlant/tests/
+Run with:  pytest mini_parlant/tests/
 """
 
 from __future__ import annotations

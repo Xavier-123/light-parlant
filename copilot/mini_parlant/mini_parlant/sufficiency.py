@@ -1,5 +1,5 @@
 """
-Sufficiency checker for mini-parlant.
+Sufficiency checker for mini_parlant.
 
 Asks the LLM (or uses a heuristic fallback) whether the current context is
 sufficient to answer the user's query.  Returns a

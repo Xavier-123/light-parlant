@@ -1,5 +1,5 @@
 """
-mini-parlant: A lightweight context optimization framework inspired by Parlant.
+mini_parlant: A lightweight context optimization framework inspired by Parlant.
 
 Provides a simple, self-contained pipeline for:
 - Parsing long-form input (query + history + knowledge)

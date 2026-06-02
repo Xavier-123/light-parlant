@@ -1,5 +1,5 @@
 """
-Enricher for mini-parlant.
+Enricher for mini_parlant.
 
 When the sufficiency checker returns INSUFFICIENT, the enricher tries to
 gather missing information through one of two built-in mechanisms:

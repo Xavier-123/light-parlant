@@ -1,5 +1,5 @@
 """
-Input parser for mini-parlant.
+Input parser for mini_parlant.
 
 Responsibility: convert a raw (possibly very long) input string into a
 :class:`~mini_parlant.models.ContextBundle`.

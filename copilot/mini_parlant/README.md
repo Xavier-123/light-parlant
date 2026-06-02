@@ -227,7 +227,7 @@ class RuntimeConfig:
 ## Running the tests
 
 ```bash
-cd mini-parlant
+cd mini_parlant
 pip install pytest
 pytest tests/
 ```
@@ -239,7 +239,7 @@ No API keys are required — all tests use the built-in stub LLM.
 ## Running the examples
 
 ```bash
-cd mini-parlant
+cd mini_parlant
 python examples/basic_usage.py
 ```
 
