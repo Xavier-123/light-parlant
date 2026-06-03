@@ -128,15 +128,8 @@ You may choose not to follow a guideline only in the following cases:
 In all other situations, you are expected to adhere to the guidelines.
 These guidelines have already been pre-filtered based on the interaction's context and other considerations outside your scope.
 
-###
-The following is the conversation history
-interaction between you and a user: ###
-<|history|>
-
-###
-The following is the session status
-###
-<|session_state|>
+### 原始输入
+<|parsed_data|>
 
 ###
 You must keep that in mind when responding to the user, to continue the last message naturally (without repeating anything similar in your last message - make sure you don't repeat something like this in your next message - it was already said!).
@@ -145,6 +138,7 @@ Produce a valid JSON object according to the following spec. Use the values prov
     "last_message_of_user": "<|query|>",
     "guidelines": ["When You are likely to generate the refined/compressed context for the user., then You must strictly use the following Markdown format for the output: {<|guideline|>}"],
     "insights": [<Up to 5 original insights to adhere to>],
+    "extract": "[<从原始输入中提取的用于支撑回复 response_body 的原文片段，最多5条>]",
     "response_body": "<response message text>"
 }}
 ###
