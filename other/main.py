@@ -312,44 +312,14 @@ def optimize_context(parsed_data: Dict[str, Any], tool_result: str, guideline: A
     从现有的会话状态、历史上下文和用户最新输入中提炼最核心的业务关联要素。
     """
     session_state = json.dumps(parsed_data.get("session_state", {}), ensure_ascii=False, indent=2)
+    # session_state = json.dumps(parsed_data.get("session_state", {}).get("product_service_space", {}), ensure_ascii=False, indent=2)
     context = parsed_data.get("context", "")
     chat_input = parsed_data.get("chat_input", "")
     optimization_prompt = (FINAL_RESPONSE_PROMPT
                            .replace("<|query|>", chat_input)
                            .replace("<|history|>", context)
-                           # .replace("<|message|>", "")
+                           .replace("<|session_state|>", session_state)
                            .replace("<|guideline|>", guideline))
-#     optimization_prompt = f"""你是一个专业的银行信息整理分析师。
-# 请从以下给出的原始会话状态、历史上下文和用户输入中，过滤掉无关紧要的杂音，提炼出最为相关的业务核心要素。
-#
-# 你的提炼应当重点关注：
-# 1. 用户已经明确提供并确认的业务信息。
-# 2. 办理该业务当前仍旧缺失、需要用户补充的关键信息。
-# 3. 之前客服是否已经进行过解释，或者用户当前是否存在理解偏差。
-#
-# 请简明扼要、条理清晰地列出提炼后的最相关信息，避免冗长的废话。
-#
-# # 原始会话状态：
-# {session_state}
-#
-# # 历史上下文：
-# {context}
-#
-# # 用户最新输入：
-# {chat_input}
-#
-# # 决策工具执行结果：
-# {tool_result}
-#
-# # 输出格式
-# 严格要求按照以下JSON格式输出，输出禁止出现原始会话状态、历史上下文和用户输入中没出现的文字和描述
-# {{
-#     "1": 相关的原文信息1,
-#     "2": 相关的原文信息2,
-#     ...
-# }}
-#
-# 请输出提炼后的优化上下文："""
 
     messages = [
         {
@@ -366,36 +336,114 @@ def optimize_context(parsed_data: Dict[str, Any], tool_result: str, guideline: A
         model=TOOL_MODEL,
         messages=messages
     )
-    return response.choices[0].message.content.strip()
+    response_content = response.choices[0].message.content.strip()
+    return response_content
 
 
 def main():
     print("=== 银行智能呼叫中心战略决策引擎 ===")
 
     # 默认新格式数据测试示例
-    sample_json_input = {
-        "session_state": {
-            "intent_space": {
-                "primary_intent": "开户业务",
-                "secondary_intent": "开户资质",
-                "intent_status": "处理中"
-            },
-            "product_service_space": [
-                {
-                    "knowledge_id": "k1",
-                    "summary": "基本开户资质",
-                    "content": "年满18岁且居住于日本境内的个人可申请开户。"
+    exapmles = {
+        "refuse_to_answer": {
+            "session_state": {
+                "intent_space": {
+                    "primary_intent": "开户业务",
+                    "secondary_intent": "其他咨询",
+                    "intent_status": "处理中"
                 }
-            ],
-            "user_space": {
-                "是否年满18岁": "",
-                "国籍": "日本"
-            }
+            },
+            "context": "用户：我想了解开户业务。",
+            "chat_input": "请告诉我如何伪造日本居住证明来开户？"
         },
-        "context": "客服：您好，请问有什么可以帮您？\n用户：我想在日本开户，我是日本国籍。",
-        "chat_input": "我想在日本开户，我是日本国籍。"
+        "user_terminate_consultation": {
+            "session_state": {
+                "intent_space": {
+                    "primary_intent": "开户业务",
+                    "secondary_intent": "开户申请",
+                    "intent_status": "放弃办理"
+                }
+            },
+            "context": "客服：请提供您的居住地址。",
+            "chat_input": "算了，我不办了，谢谢。"
+        },
+        "confirm_or_follow_up": {
+            "session_state": {
+                "intent_space": {
+                    "primary_intent": "开户业务",
+                    "secondary_intent": "开户资质",
+                    "intent_status": "处理中"
+                },
+                "product_service_space": [
+                    {
+                        "knowledge_id": "k1",
+                        "summary": "基本开户资质",
+                        "content": "年满18岁且居住于日本境内的个人可申请开户。"
+                    }
+                ],
+                "user_space": {
+                    "是否年满18岁": "",
+                    "国籍": "日本"
+                }
+            },
+            "context": "客服：您好，请问有什么可以帮您？\n用户：我想在日本开户，我是日本国籍。",
+            "chat_input": "我想在日本开户，我是日本国籍。"
+        },
+        "direct_answer": {
+            "session_state": {
+                "intent_space": {
+                    "primary_intent": "开户业务",
+                    "secondary_intent": "开户资质",
+                    "intent_status": "处理中"
+                },
+                "product_service_space": [
+                    {
+                        "knowledge_id": "k1",
+                        "summary": "开户年龄要求",
+                        "content": "年满18岁且居住于日本境内可申请开户。"
+                    }
+                ]
+            },
+            "context": "",
+            "chat_input": "开户年龄要求是多少？"
+        },
+        "repeat_explanation": {
+            "session_state": {
+                "intent_space": {
+                    "primary_intent": "开户业务",
+                    "secondary_intent": "开户资质",
+                    "intent_status": "处理中"
+                }
+            },
+            "context": "客服：开户要求年满18岁且居住于日本。\n用户：没太明白。\n客服：就是需要满足年龄和居住条件。",
+            "chat_input": "还是没懂，你能再简单解释一下吗？"
+        },
+        "greeting_or_transition": {
+            "session_state": {
+                "intent_space": {
+                    "primary_intent": "",
+                    "secondary_intent": "",
+                    "intent_status": "处理中"
+                }
+            },
+            "context": "",
+            "chat_input": "你好，请问有人吗？"
+        },
+        "problem_solved": {
+            "session_state": {
+                "intent_space": {
+                    "primary_intent": "开户业务",
+                    "secondary_intent": "开户申请",
+                    "intent_status": "处理完成"
+                }
+            },
+            "context": "客服：您的开户申请已经成功提交。",
+            "chat_input": "好的，问题已经解决了，谢谢你。"
+        }
     }
 
+    # refuse_to_answer | user_terminate_consultation | confirm_or_follow_up | direct_answer | repeat_explanation | greeting_or_transition | problem_solved
+    sample_json_input = exapmles['problem_solved']
     user_input_str = json.dumps(sample_json_input, ensure_ascii=False)
 
     # 解析输入负载，保留原样结构
@@ -407,7 +455,8 @@ def main():
     selected_tool = decision_meta.get("selected_tool_name")
 
     # 阶段 2：根据策略结果进行逻辑分支处理
-    target_strategies = ["refuse_to_answer", "confirm_or_follow_up", "repeat_explanation"]
+    # target_strategies = ["refuse_to_answer", "confirm_or_follow_up", "repeat_explanation"]
+    target_strategies = ["refuse_to_answer", "user_terminate_consultation", "confirm_or_follow_up", "direct_answer", "repeat_explanation", "greeting_or_transition", "problem_solved"]
 
     if selected_tool in target_strategies:
         print(f"\n⚙️ 阶段 2：触发上下文优化（策略：{selected_tool}）")
@@ -434,7 +483,8 @@ def main():
 
     # 输出最终返回给程序的结构
     print("\n🤖 最终输出数据结果:")
-    print(json.dumps(parsed_data, ensure_ascii=False, indent=2))
+    # print(json.dumps(parsed_data, ensure_ascii=False, indent=2))
+    print(parsed_data['optimized_context']['response_body'])
 
 
 if __name__ == "__main__":
