@@ -14,6 +14,7 @@ dependencies = []   # zero mandatory runtime deps
 
 [project.optional-dependencies]
 dev = ["pytest>=7"]
+siliconflow = ["openai>=1.0"]
 
 [tool.setuptools.packages.find]
 where = ["."]
