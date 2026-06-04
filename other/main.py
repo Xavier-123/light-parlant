@@ -6,6 +6,7 @@ auto_tool_agent.py
 - 决策模型：战略决策选择（通过调用 7 种策略工具之一）
 - 运行时：执行选定的决策策略工具
 - 上下文优化/回复生成：针对不同的决策策略执行对应的处理，并统一采用规定的 JSON 格式作为输出。
+- API 接口：提供 /dynamic_context_manager 接口进行交互
 """
 
 import json
@@ -13,6 +14,9 @@ import os
 import logging
 from typing import List, Dict, Any, Optional
 from openai import OpenAI
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel, Field
+import uvicorn
 
 # 导入外部定义
 from prompt import FINAL_RESPONSE_PROMPT
@@ -29,6 +33,7 @@ logger = logging.getLogger("AutoToolAgent")
 API_KEY = os.getenv("SILICONFLOW_API_KEY", "sk-pohmmjyabrnsghkemfpnhztwljewtqgkfvpqlrzqgpbevudc")
 BASE_URL = os.getenv("SILICONFLOW_BASE_URL", "https://api.siliconflow.cn/v1")
 TOOL_MODEL = os.getenv("TOOL_MODEL", "Qwen/Qwen2.5-32B-Instruct")
+RESPONSE_MODEL = os.getenv("RESPONSE_MODEL", "deepseek-ai/DeepSeek-V4-Flash")
 
 # ---------- 初始化客户端 ----------
 try:
@@ -129,7 +134,7 @@ def parse_raw_input(user_input: str) -> Dict[str, Any]:
             return parsed
     except json.JSONDecodeError as e:
         logger.warning(f"输入解析为标准 JSON 失败，将启用默认兜底数据。错误详情: {e}")
-        raise f"输入解析为标准 JSON 失败，将启用默认兜底数据。错误详情: {e}"
+        raise ValueError(f"输入解析为标准 JSON 失败。错误详情: {e}")
 
 
 def get_formatted_system_prompt(parsed_data: Dict[str, Any]) -> str:
@@ -239,13 +244,10 @@ def optimize_context(parsed_data: Dict[str, Any], tool_result: str, guideline: s
     从现有的会话状态、历史上下文和用户最新输入中提炼最核心的业务关联要素。
     """
     chat_input = parsed_data.get("chat_input", "")
-    # del parsed_data["chat_input"]
-    # context = parsed_data['product_service_space'] + parsed_data["context"]
-    context = f'''#### product_service_space \n{parsed_data['product_service_space']} \n\n#### 历史对话 \n{parsed_data["context"]}'''
+    context = f'''#### product_service_space \n{parsed_data.get('product_service_space', [])} \n\n#### 历史对话 \n{parsed_data.get("context", "")}'''
 
     optimization_prompt = (FINAL_RESPONSE_PROMPT
                            .replace("<|query|>", chat_input)
-                           # .replace("<|parsed_data|>", json.dumps(parsed_data))
                            .replace("<|parsed_data|>", context)
                            .replace("<|guideline|>", guideline))
 
@@ -262,7 +264,7 @@ def optimize_context(parsed_data: Dict[str, Any], tool_result: str, guideline: s
 
     try:
         response = client.chat.completions.create(
-            model=TOOL_MODEL,
+            model=RESPONSE_MODEL,
             messages=messages
         )
         return response.choices[0].message.content.strip()
@@ -276,7 +278,7 @@ def generate_strategy_response(parsed_data: Dict[str, Any], tool_result: str, st
     针对无需优化的常规回复策略，结合当前选择的策略与用户输入，调用大模型生成标准结构的回复。
     """
     chat_input = parsed_data.get("chat_input", "")
-    context = f'''#### product_service_space \n{parsed_data['product_service_space']} \n\n#### 历史对话 \n{parsed_data["context"]}'''
+    context = f'''#### product_service_space \n{parsed_data.get('product_service_space', [])} \n\n#### 历史对话 \n{parsed_data.get("context", "")}'''
     guideline = STRATEGY_GUIDELINES.get(strategy, "")
 
     prompt = f"""你是一个银行智能客服。请根据当前的会话状态、历史上下文和最新用户输入，结合已决定的业务策略，生成正式且规范的回复。
@@ -313,7 +315,7 @@ def generate_strategy_response(parsed_data: Dict[str, Any], tool_result: str, st
 
     try:
         response = client.chat.completions.create(
-            model=TOOL_MODEL,
+            model=RESPONSE_MODEL,
             messages=messages
         )
         return response.choices[0].message.content.strip()
@@ -322,179 +324,89 @@ def generate_strategy_response(parsed_data: Dict[str, Any], tool_result: str, st
         return ""
 
 
-# ---------- 主程序入口 ----------
+# ---------- FastAPI 接口定义 ----------
 
-def main():
-    logger.info("=== 银行智能呼叫中心战略决策引擎 ===")
+app = FastAPI(title="Bank Smart Call Center Decision Engine API", version="1.0.0")
 
-    # 默认新格式数据测试示例
-    examples = {
-        "refuse_to_answer": {
-            "session_state": {
-                "intent_space": {
-                    "primary_intent": "开户业务",
-                    "secondary_intent": "其他咨询",
-                    "intent_status": "处理中"
-                }
-            },
-            "product_service_space": [
-                "涉及机密、超出开户范围、存在安全或合规风险、知识库内容不足等。需委婉礼貌拒绝，规避合规风险。"
-            ],
-            "context": "用户：我想了解开户业务。",
-            "chat_input": "请告诉我如何伪造日本居住证明来开户？"
-        },
-        "user_terminate_consultation": {
-            "session_state": {
-                "intent_space": {
-                    "primary_intent": "开户业务",
-                    "secondary_intent": "开户申请",
-                    "intent_status": "放弃办理"
-                }
-            },
-            "context": "客服：请提供您的居住地址。",
-            "chat_input": "算了，我不办了，谢谢。"
-        },
-        "confirm_or_follow_up": {
-            "session_state": {
-                "intent_space": {
-                    "primary_intent": "开户业务",
-                    "secondary_intent": "开户资质",
-                    "intent_status": "处理中"
-                },
-                "product_service_space": [
-                    {
-                        "knowledge_id": "k1",
-                        "summary": "基本开户资质",
-                        "content": "年满18岁且居住于日本境内的个人可申请开户。"
-                    }
-                ],
-                "user_space": {
-                    "是否年满18岁": "",
-                    "国籍": "日本"
-                }
-            },
-            "context": "客服：您好，请问有什么可以帮您？\n用户：我想在日本开户，我是日本国籍。",
-            "chat_input": "我想在日本开户，我是日本国籍。"
-        },
-        "direct_answer": {
-            "session_state": {
-                "intent_space": {
-                    "primary_intent": "开户业务",
-                    "secondary_intent": "开户资质",
-                    "intent_status": "处理中"
-                },
-                "product_service_space": [
-                    {
-                        "knowledge_id": "k1",
-                        "summary": "开户年龄要求",
-                        "content": "年满18岁且居住于日本境内可申请开户。"
-                    }
-                ]
-            },
-            "context": "",
-            "chat_input": "开户年龄要求是多少？"
-        },
-        "repeat_explanation": {
-            "session_state": {
-                "intent_space": {
-                    "primary_intent": "开户业务",
-                    "secondary_intent": "开户资质",
-                    "intent_status": "处理中"
-                }
-            },
-            "context": "客服：开户要求年满18岁且居住于日本。\n用户：没太明白。\n客服：就是需要满足年龄和居住条件。",
-            "chat_input": "还是没懂，你能再简单解释一下吗？"
-        },
-        "greeting_or_transition": {
-            "session_state": {
-                "intent_space": {
-                    "primary_intent": "",
-                    "secondary_intent": "",
-                    "intent_status": "处理中"
-                }
-            },
-            "context": "",
-            "chat_input": "你好，请问有人吗？"
-        },
-        "problem_solved": {
-            "session_state": {
-                "intent_space": {
-                    "primary_intent": "开户业务",
-                    "secondary_intent": "开户申请",
-                    "intent_status": "处理完成"
-                }
-            },
-            "context": "客服：您的开户申请已经成功提交。",
-            "chat_input": "好的，问题已经解决了，谢谢你。"
+
+# 定义请求数据模型
+class SessionState(BaseModel):
+    intent_space: Optional[Dict[str, Any]] = Field(default=None)
+
+
+class DecisionRequest(BaseModel):
+    session_state: Optional[SessionState] = Field(default=None)
+    product_service_space: Optional[List[str]] = Field(default_factory=list)
+    context: Optional[str] = Field(default="")
+    chat_input: str
+
+
+@app.post("/dynamic_context_manager")
+async def dynamic_context_manager(request: DecisionRequest):
+    """
+    智能呼叫中心战略决策引擎 API 接口。
+    接收当前会话状态、历史上下文和用户输入，返回决策分类与优化后的上下文或具体回复内容。
+    """
+    try:
+        # 将传入的 Pydantic 模型转换为字典以便原有逻辑处理
+        parsed_data = request.model_dump()
+
+        # 1. 阶段 1：智能决策与策略工具调用
+        logger.info("阶段 1：开始智能决策与策略映射")
+        decision_meta = tool_call_loop(parsed_data)
+        selected_tool = decision_meta.get("selected_tool_name")
+
+        # 定义触发优化的目标策略列表
+        target_strategies = ["refuse_to_answer", "confirm_or_follow_up", "repeat_explanation"]
+
+        # 2. 阶段 2：策略结果及上下文优化处理
+        if selected_tool in target_strategies:
+            logger.info(f"阶段 2：触发上下文优化（策略：{selected_tool}）")
+            raw_optimized = optimize_context(
+                parsed_data,
+                decision_meta["tool_result"],
+                STRATEGY_GUIDELINES.get(selected_tool, "")
+            )
+
+            parsed_json = safe_parse_json(raw_optimized)
+            if parsed_json is not None:
+                parsed_data["optimized_context"] = parsed_json
+                logger.info("提炼的核心上下文（JSON 格式）已成功追加到 optimized_context。")
+            else:
+                parsed_data["optimized_context"] = raw_optimized
+                logger.info("未能解析为标准 JSON，已将原始文本追加到 optimized_context。")
+        else:
+            logger.info(f"阶段 2：无需进行上下文优化（策略：{selected_tool}），开始调用模型生成标准结构回复。")
+            raw_response = generate_strategy_response(
+                parsed_data,
+                decision_meta["tool_result"],
+                selected_tool
+            )
+
+            parsed_json = safe_parse_json(raw_response)
+            if parsed_json is not None:
+                parsed_data["optimized_context"] = parsed_json
+                logger.info("生成的回复（JSON 格式）已成功追加到 optimized_context。")
+            else:
+                parsed_data["optimized_context"] = raw_response
+                logger.info("未能解析为标准 JSON，已将原始文本追加到 optimized_context。")
+
+        # 3. 构造并整理返回数据
+        optimized_ctx = parsed_data.get("optimized_context")
+
+        return {
+            "selected_strategy": selected_tool,
+            "selected_strategy_chinese_name": STRATEGY_MAP.get(selected_tool, "未知策略"),
+            "tool_result": decision_meta.get("tool_result"),
+            "optimized_context": optimized_ctx,
+
         }
-    }
 
-    # 测试用例
-    # refuse_to_answer | user_terminate_consultation | confirm_or_follow_up | direct_answer | repeat_explanation | greeting_or_transition | problem_solved
-    sample_json_input = examples['refuse_to_answer']
-    user_input_str = json.dumps(sample_json_input, ensure_ascii=False)
-
-    # 1. 解析输入数据
-    parsed_data = parse_raw_input(user_input_str)
-
-    # 2. 阶段 1：智能决策与策略工具调用
-    logger.info("阶段 1：开始智能决策与策略映射")
-    decision_meta = tool_call_loop(parsed_data)
-    selected_tool = decision_meta.get("selected_tool_name")
-
-    # 定义触发优化的目标策略列表（直接取自策略映射表）
-    target_strategies = ["refuse_to_answer", "confirm_or_follow_up", "repeat_explanation"]
-
-    # 3. 阶段 2：策略结果及上下文优化处理
-    if selected_tool in target_strategies:
-        logger.info(f"阶段 2：触发上下文优化（策略：{selected_tool}）")
-        raw_optimized = optimize_context(
-            parsed_data,
-            decision_meta["tool_result"],
-            STRATEGY_GUIDELINES.get(selected_tool, "")
-        )
-
-        parsed_json = safe_parse_json(raw_optimized)
-        if parsed_json is not None:
-            parsed_data["optimized_context"] = parsed_json
-            logger.info("提炼的核心上下文（JSON 格式）已成功追加到 optimized_context。")
-        else:
-            parsed_data["optimized_context"] = raw_optimized
-            logger.info("未能解析为标准 JSON，已将原始文本追加到 optimized_context。")
-    else:
-        logger.info(f"阶段 2：无需进行上下文优化（策略：{selected_tool}），开始调用模型生成标准结构回复。")
-        raw_response = generate_strategy_response(
-            parsed_data,
-            decision_meta["tool_result"],
-            selected_tool
-        )
-
-        parsed_json = safe_parse_json(raw_response)
-        if parsed_json is not None:
-            parsed_data["optimized_context"] = parsed_json
-            logger.info("生成的回复（JSON 格式）已成功追加到 optimized_context。")
-        else:
-            parsed_data["optimized_context"] = raw_response
-            logger.info("未能解析为标准 JSON，已将原始文本追加到 optimized_context。")
-
-    # 4. 安全输出最终结果
-    logger.info("最终输出数据结果:")
-    optimized_ctx = parsed_data.get("optimized_context")
-
-    if isinstance(optimized_ctx, dict):
-        response_body = optimized_ctx.get("response_body")
-        if response_body:
-            print(response_body)
-        else:
-            logger.warning("optimized_context 字典中未找到 response_body 字段，输出完整字典。")
-            print(json.dumps(optimized_ctx, ensure_ascii=False, indent=2))
-    elif optimized_ctx:
-        # 降级输出非字典格式的内容
-        print(optimized_ctx)
-    else:
-        logger.warning("未生成 optimized_context 字段。")
-        print(json.dumps(parsed_data, ensure_ascii=False, indent=2))
+    except Exception as e:
+        logger.error(f"处理决策引擎请求失败: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"内部决策处理异常: {str(e)}")
 
 
 if __name__ == "__main__":
-    main()
+    # 本地直接启动服务（默认端口：8000）
+    uvicorn.run(app, host="0.0.0.0", port=8000)
