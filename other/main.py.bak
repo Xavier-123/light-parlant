@@ -261,18 +261,67 @@ def optimize_context(parsed_data: Dict[str, Any], tool_result: str, guideline: s
             "content": optimization_prompt
         }
     ]
-    logger.info(f"optimization_prompt: \n{optimization_prompt}")
-    return optimization_prompt
 
-    # try:
-    #     response = client.chat.completions.create(
-    #         model=RESPONSE_MODEL,
-    #         messages=messages
-    #     )
-    #     return response.choices[0].message.content.strip()
-    # except Exception as e:
-    #     logger.error(f"调用上下文优化 API 失败: {e}")
-    #     return ""
+    try:
+        response = client.chat.completions.create(
+            model=RESPONSE_MODEL,
+            messages=messages
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        logger.error(f"调用上下文优化 API 失败: {e}")
+        return ""
+
+
+def generate_strategy_response(parsed_data: Dict[str, Any], tool_result: str, strategy: str) -> str:
+    """
+    针对无需优化的常规回复策略，结合当前选择的策略与用户输入，调用大模型生成标准结构的回复。
+    """
+    chat_input = parsed_data.get("chat_input", "")
+    context = f'''#### product_service_space \n{parsed_data.get('product_service_space', [])} \n\n#### 历史对话 \n{parsed_data.get("context", "")}'''
+    guideline = STRATEGY_GUIDELINES.get(strategy, "")
+
+    prompt = f"""你是一个银行智能客服。请根据当前的会话状态、历史上下文和最新用户输入，结合已决定的业务策略，生成正式且规范的回复。
+
+# 原始输入
+{context}
+
+# 选定回复策略:
+{strategy} ({guideline})
+
+# 策略执行元数据:
+{tool_result}
+
+请根据以上信息，严格输出符合以下 JSON 结构的文本，不要包含除 Markdown 格式（```json）外的多余描述：
+{{
+    "last_message_of_user": "{chat_input}",
+    "guidelines": ["When You are likely to generate the refined/compressed context for the user., then You must strictly use the following Markdown format for the output: {{{guideline}}}"],
+    "insights": ["分析所得的客服对话洞察（上限5条）"],
+    "extract": "[<从原始输入中提取的用于回复的原文片段，最多5条>]",
+    "response_body": "<请在此处生成具体回复用户的专业话术内容>"
+}}
+"""
+
+    messages = [
+        {
+            "role": "system",
+            "content": "你是一个严谨的银行客服决策生成器。请直接输出符合规定 JSON 格式的回复，无需任何额外的客套话。"
+        },
+        {
+            "role": "user",
+            "content": prompt
+        }
+    ]
+
+    try:
+        response = client.chat.completions.create(
+            model=RESPONSE_MODEL,
+            messages=messages
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        logger.error(f"调用策略回复生成 API 失败: {e}")
+        return ""
 
 
 # ---------- FastAPI 接口定义 ----------
@@ -286,8 +335,6 @@ class SessionState(BaseModel):
 
 
 class DecisionRequest(BaseModel):
-    session_id: Any
-    agent_id: Any
     session_state: Optional[SessionState] = Field(default=None)
     product_service_space: Optional[List[str]] = Field(default_factory=list)
     context: Optional[str] = Field(default="")
@@ -310,25 +357,49 @@ async def dynamic_context_manager(request: DecisionRequest):
         selected_tool = decision_meta.get("selected_tool_name")
 
         # 定义触发优化的目标策略列表
-        target_strategies = list(STRATEGY_GUIDELINES.keys())
-        # target_strategies = ["refuse_to_answer", "confirm_or_follow_up", "repeat_explanation"]
+        target_strategies = ["refuse_to_answer", "confirm_or_follow_up", "repeat_explanation"]
 
         # 2. 阶段 2：策略结果及上下文优化处理
         if selected_tool in target_strategies:
             logger.info(f"阶段 2：触发上下文优化（策略：{selected_tool}）")
-            raw_response = optimize_context(
+            raw_optimized = optimize_context(
                 parsed_data,
                 decision_meta["tool_result"],
                 STRATEGY_GUIDELINES.get(selected_tool, "")
             )
 
+            parsed_json = safe_parse_json(raw_optimized)
+            if parsed_json is not None:
+                parsed_data["optimized_context"] = parsed_json
+                logger.info("提炼的核心上下文（JSON 格式）已成功追加到 optimized_context。")
+            else:
+                parsed_data["optimized_context"] = raw_optimized
+                logger.info("未能解析为标准 JSON，已将原始文本追加到 optimized_context。")
+        else:
+            logger.info(f"阶段 2：无需进行上下文优化（策略：{selected_tool}），开始调用模型生成标准结构回复。")
+            raw_response = generate_strategy_response(
+                parsed_data,
+                decision_meta["tool_result"],
+                selected_tool
+            )
+
+            parsed_json = safe_parse_json(raw_response)
+            if parsed_json is not None:
+                parsed_data["optimized_context"] = parsed_json
+                logger.info("生成的回复（JSON 格式）已成功追加到 optimized_context。")
+            else:
+                parsed_data["optimized_context"] = raw_response
+                logger.info("未能解析为标准 JSON，已将原始文本追加到 optimized_context。")
+
+        # 3. 构造并整理返回数据
+        optimized_ctx = parsed_data.get("optimized_context")
+
         return {
-            "session_id": request.session_id,
-            "agent_id": request.agent_id,
             "selected_strategy": selected_tool,
             "selected_strategy_chinese_name": STRATEGY_MAP.get(selected_tool, "未知策略"),
             "tool_result": decision_meta.get("tool_result"),
-            "prompt": raw_response,
+            "optimized_context": optimized_ctx,
+
         }
 
     except Exception as e:
