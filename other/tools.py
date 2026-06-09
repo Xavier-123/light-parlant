@@ -25,7 +25,8 @@ tools = [
                         "description": "补充提示信息，无则留空"
                     }
                 },
-                "required": ["second_layer_strategy", "selected_candidate_id", "reasoning"]
+                "required": ["second_layer_strategy", "selected_candidate_id", "reasoning"],
+                "additionalProperties": False
             }
         }
     },
@@ -55,7 +56,8 @@ tools = [
                         "description": "补充提示信息，无则留空"
                     }
                 },
-                "required": ["second_layer_strategy", "selected_candidate_id", "reasoning"]
+                "required": ["second_layer_strategy", "selected_candidate_id", "reasoning"],
+                "additionalProperties": False
             }
         }
     },
@@ -89,7 +91,8 @@ tools = [
                         "description": "补充提示信息，无则留空"
                     }
                 },
-                "required": ["second_layer_strategy", "selected_candidate_id", "reasoning", "suggested_question"]
+                "required": ["second_layer_strategy", "selected_candidate_id", "reasoning", "suggested_question"],
+                "additionalProperties": False
             }
         }
     },
@@ -119,7 +122,8 @@ tools = [
                         "description": "补充提示信息，无则留空"
                     }
                 },
-                "required": ["second_layer_strategy", "selected_candidate_id", "reasoning"]
+                "required": ["second_layer_strategy", "selected_candidate_id", "reasoning"],
+                "additionalProperties": False
             }
         }
     },
@@ -149,7 +153,8 @@ tools = [
                         "description": "补充提示信息，无则留空"
                     }
                 },
-                "required": ["second_layer_strategy", "selected_candidate_id", "reasoning"]
+                "required": ["second_layer_strategy", "selected_candidate_id", "reasoning"],
+                "additionalProperties": False
             }
         }
     },
@@ -179,7 +184,8 @@ tools = [
                         "description": "补充提示信息，无则留空"
                     }
                 },
-                "required": ["second_layer_strategy", "selected_candidate_id", "reasoning"]
+                "required": ["second_layer_strategy", "selected_candidate_id", "reasoning"],
+                "additionalProperties": False
             }
         }
     },
@@ -209,7 +215,8 @@ tools = [
                         "description": "补充提示信息，无则留空"
                     }
                 },
-                "required": ["second_layer_strategy", "selected_candidate_id", "reasoning"]
+                "required": ["second_layer_strategy", "selected_candidate_id", "reasoning"],
+                "additionalProperties": False
             }
         }
     }

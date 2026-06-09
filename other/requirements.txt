@@ -1,3 +1,4 @@
 openai
 uvicorn
 fastapi
+pydantic>=2.0

@@ -3,15 +3,17 @@
 auto_tool_agent.py
 
 系统根据用户输入自动决策是否调用工具。
-- 决策模型：战略决策选择（通过调用 7 种策略工具之一）
-- 运行时：执行选定的决策策略工具
-- 上下文优化/回复生成：针对不同的决策策略执行对应的处理，并统一采用规定的 JSON 格式作为输出。
+- 阶段 0：Skill 预处理（业务逻辑判定，命中则直接截断返回）
+- 阶段 1：决策模型战略决策选择（通过调用 7 种策略工具之一）
+- 阶段 2：运行时执行选定的决策策略工具
+- 阶段 3：上下文优化/回复生成
 - API 接口：提供 /dynamic_context_manager 接口进行交互
 """
 
 import json
 import os
 import logging
+import re
 from typing import List, Dict, Any, Optional
 from openai import OpenAI
 from fastapi import FastAPI, HTTPException
@@ -20,6 +22,7 @@ import uvicorn
 
 # 导入外部定义
 from prompt import FINAL_RESPONSE_PROMPT
+from skill import TokyoStarCounterOpenSkill, TokyoStarOnlineAddressModSkill, BaseSkill
 from tools import tools
 
 # ---------- 日志配置 ----------
@@ -30,10 +33,9 @@ logging.basicConfig(
 logger = logging.getLogger("AutoToolAgent")
 
 # ---------- 配置读取（优先从环境变量读取，避免硬编码敏感信息） ----------
-API_KEY = os.getenv("SILICONFLOW_API_KEY", "sk-pohmmjyabrnsghkemfpnhztwljewtqgkfvpqlrzqgpbevudc")
+API_KEY = os.getenv("SILICONFLOW_API_KEY", "sk-duhwosgxlixiqnoeremlimqgorstljququocpbyrkyfxwuih")
 BASE_URL = os.getenv("SILICONFLOW_BASE_URL", "https://api.siliconflow.cn/v1")
 TOOL_MODEL = os.getenv("TOOL_MODEL", "Qwen/Qwen2.5-32B-Instruct")
-RESPONSE_MODEL = os.getenv("RESPONSE_MODEL", "deepseek-ai/DeepSeek-V4-Flash")
 
 # ---------- 初始化客户端 ----------
 try:
@@ -67,6 +69,33 @@ STRATEGY_MAP = {
     "greeting_or_transition": "问候/话题过渡",
     "problem_solved": "问题已解决"
 }
+
+# ==================== Skill 预处理层设计与定义 ====================
+# 注册 Skill 列表 (极易扩展，只需定义新的 Skill 类并追加至此处)
+SKILLS_REGISTRY: List[BaseSkill] = [
+    TokyoStarCounterOpenSkill(client, model=TOOL_MODEL),
+    TokyoStarOnlineAddressModSkill(client, model=TOOL_MODEL)
+]
+
+
+def evaluate_skills(parsed_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """
+    Skill 预处理评估模块。
+    遍历注册的 Skill，检测到匹配时直接触发其判定逻辑。
+    """
+    for skill in SKILLS_REGISTRY:
+        if skill.match(parsed_data):
+            logger.info(f"成功匹配业务 Skill 触发条件: {skill.chinese_name}")
+            prompt = skill.execute(parsed_data)
+            return {
+                "selected_strategy": skill.name,
+                "selected_strategy_chinese_name": skill.chinese_name,
+                "prompt": prompt
+            }
+    return None
+
+
+# =================================================================
 
 
 # ---------- 工具函数：清理并解析 JSON 文本 ----------
@@ -124,17 +153,6 @@ def load_prompt_template() -> str:
 1. 分析用户的意图与当前的业务流程阶段。
 2. 结合知识库列表，判断已提供的信息是否足够解答。若足够则直接解答，若信息缺失则执行追问或拒绝回答等适当策略。
 3. 请严格从给定的工具列表中选择唯一一个最合适的策略进行调用，并填入准确合理的参数。"""
-
-
-def parse_raw_input(user_input: str) -> Dict[str, Any]:
-    """解析用户输入并返回完整的原始字典结构"""
-    try:
-        parsed = json.loads(user_input)
-        if isinstance(parsed, dict):
-            return parsed
-    except json.JSONDecodeError as e:
-        logger.warning(f"输入解析为标准 JSON 失败，将启用默认兜底数据。错误详情: {e}")
-        raise ValueError(f"输入解析为标准 JSON 失败。错误详情: {e}")
 
 
 def get_formatted_system_prompt(parsed_data: Dict[str, Any]) -> str:
@@ -220,6 +238,8 @@ def tool_call_loop(parsed_data: Dict[str, Any], max_tool_calls: int = 3) -> Dict
                     "tool_call_id": tool_call.id,
                     "content": result
                 })
+                tool_call_count += 1
+                break
             else:
                 error_msg = f"错误: 未找到与该意图匹配的策略 {func_name}"
                 logger.error(error_msg)
@@ -229,8 +249,7 @@ def tool_call_loop(parsed_data: Dict[str, Any], max_tool_calls: int = 3) -> Dict
                     "content": error_msg
                 })
                 tool_result = error_msg
-
-            tool_call_count += 1
+                tool_call_count += 1
 
     return {
         "selected_tool_name": selected_tool_name,
@@ -261,18 +280,8 @@ def optimize_context(parsed_data: Dict[str, Any], tool_result: str, guideline: s
             "content": optimization_prompt
         }
     ]
-    logger.info(f"optimization_prompt: \n{optimization_prompt}")
+    logger.debug(f"optimization_prompt: \n{optimization_prompt}")
     return optimization_prompt
-
-    # try:
-    #     response = client.chat.completions.create(
-    #         model=RESPONSE_MODEL,
-    #         messages=messages
-    #     )
-    #     return response.choices[0].message.content.strip()
-    # except Exception as e:
-    #     logger.error(f"调用上下文优化 API 失败: {e}")
-    #     return ""
 
 
 # ---------- FastAPI 接口定义 ----------
@@ -286,8 +295,8 @@ class SessionState(BaseModel):
 
 
 class DecisionRequest(BaseModel):
-    session_id: Any
-    agent_id: Any
+    session_id: str
+    agent_id: str
     session_state: Optional[SessionState] = Field(default=None)
     product_service_space: Optional[List[str]] = Field(default_factory=list)
     context: Optional[str] = Field(default="")
@@ -301,19 +310,34 @@ async def dynamic_context_manager(request: DecisionRequest):
     接收当前会话状态、历史上下文和用户输入，返回决策分类与优化后的上下文或具体回复内容。
     """
     try:
-        # 将传入的 Pydantic 模型转换为字典以便原有逻辑处理
+        # 将传入的 Pydantic 模型转换为字典以便后续逻辑处理
         parsed_data = request.model_dump()
 
-        # 1. 阶段 1：智能决策与策略工具调用
-        logger.info("阶段 1：开始智能决策与策略映射")
+        # 1. 阶段 0：Skill 预处理模块检测
+        logger.info("阶段 0：启动 Skill 预处理评估")
+        skill_response = evaluate_skills(parsed_data)
+
+        if skill_response is not None:
+            logger.info(f"Skill 预处理拦截成功，执行业务 Skill 并截断后续策略流程。")
+            return {
+                "session_id": request.session_id,
+                "agent_id": request.agent_id,
+                "selected_strategy": skill_response["selected_strategy"],
+                "selected_strategy_chinese_name": skill_response["selected_strategy_chinese_name"],
+                "tool_result": None,
+                "prompt": skill_response["prompt"],
+            }
+
+        # 2. 阶段 1：无 Skill 命中，走原有智能决策逻辑与策略映射
+        logger.info("阶段 1：未触发业务 Skill，启动智能决策与策略映射")
         decision_meta = tool_call_loop(parsed_data)
         selected_tool = decision_meta.get("selected_tool_name")
 
         # 定义触发优化的目标策略列表
         target_strategies = list(STRATEGY_GUIDELINES.keys())
-        # target_strategies = ["refuse_to_answer", "confirm_or_follow_up", "repeat_explanation"]
 
-        # 2. 阶段 2：策略结果及上下文优化处理
+        # 3. 阶段 2：策略结果及上下文优化处理
+        raw_response = ""
         if selected_tool in target_strategies:
             logger.info(f"阶段 2：触发上下文优化（策略：{selected_tool}）")
             raw_response = optimize_context(
