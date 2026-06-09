@@ -140,7 +140,7 @@ Produce a valid JSON object according to the following spec. Use the values prov
     "last_message_of_user": "<|query|>",
     "guidelines": ["When You are likely to generate the refined/compressed context for the user., then You must strictly use the following Markdown format for the output: {<|guideline|>}"],
     "insights": [<Up to 5 original insights to adhere to>],
-    "extract": "[<从原始输入中提取的用于支撑回复 response_body 的原文片段，最多5条>]",
+    "extract": <|supporting_segments|>,
     "response_body": "<response message text>"
 }}
 ###
